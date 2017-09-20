@@ -89,7 +89,6 @@ install: install-glide
 
 .PHONY: install_examples
 install_examples: install
-	(cd examples/hotrod/; glide install)
 
 .PHONY: build_examples
 build_examples:

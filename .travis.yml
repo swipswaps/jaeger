@@ -11,6 +11,9 @@ matrix:
     env:
     - TESTS=true
     - COVERAGE=true
+  - go: 1.8
+    env:
+    - TESTS=true
   - go: 1.7
     env:
     - ALL_IN_ONE=true
@@ -23,10 +26,6 @@ matrix:
   - go: 1.7
     env:
     - ES_INTEGRATION_TEST=true
-# TODO 1.8 tests take way too long to run 900s vs 250s for 1.7
-#  - go: 1.8
-#    env:
-#    - TESTS=true
 
 services:
   - docker

@@ -173,6 +173,7 @@ install_ci: install install_examples
 
 .PHONY: test_ci
 test_ci: build_examples
+	@go test -i $(shell glide novendor)
 	@./scripts/cover.sh $(shell go list $(PACKAGES))
 	make lint
 

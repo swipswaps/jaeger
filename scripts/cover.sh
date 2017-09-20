@@ -53,7 +53,7 @@ for pkg in "$@"; do
 	fi
 
 	echo go test -v -race "$pkg"
-	go test $args -v -race "$pkg"
+	time go test $args -v -race "$pkg"
 done
 
 gocovmerge "$COVER"/*.out > cover.out

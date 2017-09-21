@@ -184,7 +184,7 @@ test_ci: build_examples
 	@time go test -i $(ALL_PKGS)
 	rm cover.out &>/dev/null || true
 	echo "mode: count" > cover.out
-	bash -c "set -e; set -o pipefail; go run scripts/gotestcover/gotestcover.go -covermode=atomic -race -coverprofile=cover.out -v -parallelTOP_PKGS $(shell getconf _NPROCESSORS_ONLN) $(ALL_PKGS) | $(COLORIZE)"
+	bash -c "set -e; set -o pipefail; go run scripts/gotestcover/gotestcover.go -covermode=atomic -race -coverprofile=cover.out -v -parallelpackages $(shell getconf _NPROCESSORS_ONLN) $(ALL_PKGS) | $(COLORIZE)"
 	make lint
 
 # TODO at the moment we're not generating tchan_*.go files

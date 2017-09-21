@@ -1,0 +1,9 @@
+builds:
+  - binary: collector
+    main: cmd/collector/main.go
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64

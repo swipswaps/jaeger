@@ -1,4 +1,14 @@
 PROJECT_ROOT=github.com/uber/jaeger
+
+# all .go files that don't exist in hidden directories
+ALL_SRC := $(shell find . -name "*.go" -path "*$(PKG)*" | grep -v -e Godeps -e vendor -e go-build \
+        -e ".*/\..*" \
+        -e ".*/_.*" \
+        -e ".*/testdata/.*" \
+        -e ".*/mocks.*")
+
+ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
+
 PACKAGES := $(shell glide novendor | grep -v ./thrift-gen/... | grep -v ./examples/...)
 
 # all .go files that don't exist in hidden directories
@@ -173,8 +183,8 @@ install_ci: install install_examples
 .PHONY: test_ci
 test_ci: build_examples
 	@echo pre-compiling tests
-	@time go test -i $(shell glide novendor)
-	@./scripts/cover.sh $(shell go list $(PACKAGES))
+	@time go test -i $(ALL_PKGS)
+	@./scripts/cover.sh $(ALL_PKGS)
 	make lint
 
 # TODO at the moment we're not generating tchan_*.go files

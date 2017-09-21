@@ -11,6 +11,9 @@ ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
 
 export GO15VENDOREXPERIMENT=1
 
+x:
+	echo $(ALL_SRC)
+
 RACE=-race
 GOTEST=go test -v $(RACE)
 GOLINT=golint

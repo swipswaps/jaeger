@@ -1,21 +1,13 @@
 PROJECT_ROOT=github.com/uber/jaeger
+TOP_PKGS := $(shell glide novendor | grep -v -e ./thrift-gen/... -e ./examples/... -e ./scripts/...)
 
 # all .go files that don't exist in hidden directories
-ALL_SRC := $(shell find . -name "*.go" -path "*$(PKG)*" | grep -v -e Godeps -e vendor -e go-build \
+ALL_SRC := $(shell find . -name "*.go" | grep -v -e vendor -e thrift-gen -e gotestcover \
         -e ".*/\..*" \
         -e ".*/_.*" \
-        -e ".*/testdata/.*" \
         -e ".*/mocks.*")
 
 ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
-
-PACKAGES := $(shell glide novendor | grep -v ./thrift-gen/... | grep -v ./examples/...)
-
-# all .go files that don't exist in hidden directories
-ALL_SRC := $(shell find . -name "*.go" | grep -v -e vendor -e thrift-gen \
-        -e ".*/\..*" \
-        -e ".*/_.*" \
-        -e ".*/mocks.*")
 
 export GO15VENDOREXPERIMENT=1
 
@@ -28,6 +20,12 @@ FMT_LOG=fmt.log
 LINT_LOG=lint.log
 MKDOCS_VIRTUAL_ENV=.mkdocs-virtual-env
 
+ifeq ($(shell uname), Darwin)
+  SED=sed -l
+else
+  SED=sed -u
+endif
+
 THRIFT_VER=0.9.3
 THRIFT_IMG=thrift:$(THRIFT_VER)
 THRIFT=docker run --rm -u ${shell id -u} -v "${PWD}:/data" $(THRIFT_IMG) thrift
@@ -37,7 +35,7 @@ THRIFT_GEN_DIR=thrift-gen
 
 PASS=$(shell printf "\033[32mPASS\033[0m")
 FAIL=$(shell printf "\033[31mFAIL\033[0m")
-COLORIZE=sed ''/PASS/s//$(PASS)/'' | sed ''/FAIL/s//$(FAIL)/''
+COLORIZE=$(SED) ''/PASS/s//$(PASS)/'' | $(SED) ''/FAIL/s//$(FAIL)/''
 DOCKER_NAMESPACE?=$(USER)
 DOCKER_TAG?=latest
 
@@ -48,7 +46,7 @@ test-and-lint: test fmt lint
 
 .PHONY: go-gen
 go-gen:
-	go generate $(PACKAGES)
+	go generate $(TOP_PKGS)
 
 .PHONY: md-to-godoc-gen
 md-to-godoc-gen:
@@ -62,7 +60,7 @@ clean:
 
 .PHONY: test
 test: go-gen
-	bash -c "set -e; set -o pipefail; $(GOTEST) $(PACKAGES) | $(COLORIZE)"
+	bash -c "set -e; set -o pipefail; $(GOTEST) $(TOP_PKGS) | $(COLORIZE)"
 
 .PHONY: integration-test
 integration-test: go-gen
@@ -79,9 +77,9 @@ fmt:
 
 .PHONY: lint
 lint:
-	$(GOVET) $(PACKAGES)
+	$(GOVET) $(TOP_PKGS)
 	@cat /dev/null > $(LINT_LOG)
-	@$(foreach pkg, $(PACKAGES), $(GOLINT) $(pkg) | grep -v -e pkg/es/wrapper.go -e /mocks/ -e thrift-gen -e thrift-0.9.2 >> $(LINT_LOG) || true;)
+	@$(foreach pkg, $(TOP_PKGS), $(GOLINT) $(pkg) | grep -v -e pkg/es/wrapper.go -e /mocks/ -e thrift-gen -e thrift-0.9.2 >> $(LINT_LOG) || true;)
 	@[ ! -s "$(LINT_LOG)" ] || (echo "Lint Failures" | cat - $(LINT_LOG) && false)
 	@$(GOFMT) -e -s -l $(ALL_SRC) > $(FMT_LOG)
 	@./scripts/updateLicenses.sh >> $(FMT_LOG)
@@ -169,7 +167,7 @@ build-crossdock-fresh: build-crossdock-bin
 
 .PHONY: cover
 cover:
-	./scripts/cover.sh $(shell go list $(PACKAGES))
+	./scripts/cover.sh $(shell go list $(TOP_PKGS))
 	go tool cover -html=cover.out -o cover.html
 
 .PHONY: install_ci
@@ -184,7 +182,9 @@ install_ci: install install_examples
 test_ci: build_examples
 	@echo pre-compiling tests
 	@time go test -i $(ALL_PKGS)
-	@./scripts/cover.sh $(ALL_PKGS)
+	rm cover.out &>/dev/null || true
+	echo "mode: count" > cover.out
+	bash -c "set -e; set -o pipefail; go run scripts/gotestcover/gotestcover.go -covermode=atomic -race -coverprofile=cover.out -v -parallelTOP_PKGS $(shell getconf _NPROCESSORS_ONLN) $(ALL_PKGS) | $(COLORIZE)"
 	make lint
 
 # TODO at the moment we're not generating tchan_*.go files

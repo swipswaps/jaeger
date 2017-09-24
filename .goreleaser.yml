@@ -23,5 +23,11 @@ builds:
       - linux
     goarch:
       - amd64
+  - binary: standalone
+    main: cmd/standalone/main.go
+    goos:
+      - linux
+    goarch:
+      - amd64
    
   

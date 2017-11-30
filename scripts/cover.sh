@@ -3,7 +3,7 @@
 set -e
 
 COVER=.cover
-ROOT_PKG=github.com/uber/jaeger/
+ROOT_PKG=github.com/jaegertracing/jaeger/
 
 if [[ -d "$COVER" ]]; then
 	rm -rf "$COVER"
@@ -52,7 +52,7 @@ for pkg in "$@"; do
 		args="-coverprofile $COVER/cover.${i}.out" # -coverpkg $coverpkg
 	fi
 
-	echo go test -v -race "$pkg"
+	echo go test $args -v -race "$pkg"
 	go test $args -v -race "$pkg"
 done
 

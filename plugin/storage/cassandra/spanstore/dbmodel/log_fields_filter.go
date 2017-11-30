@@ -12,26 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package httpexpvar
+package dbmodel
 
-import (
-	"expvar"
-	"fmt"
-	"net/http"
-)
+import "github.com/jaegertracing/jaeger/model"
 
-// Handler is a copy of expvar.expvarHandler private method.
-// TODO this won't be needed in Go 1.8
-func Handler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	fmt.Fprintf(w, "{\n")
-	first := true
-	expvar.Do(func(kv expvar.KeyValue) {
-		if !first {
-			fmt.Fprintf(w, ",\n")
-		}
-		first = false
-		fmt.Fprintf(w, "%q: %s", kv.Key, kv.Value)
-	})
-	fmt.Fprintf(w, "\n}\n")
+// LogFieldsFilter filters all span.Logs.Fields.
+type LogFieldsFilter struct {
+	tagFilterImpl
+}
+
+// NewLogFieldsFilter return a filter that filters all span.Logs.Fields.
+func NewLogFieldsFilter() *LogFieldsFilter {
+	return &LogFieldsFilter{}
+}
+
+// FilterLogFields implements TagFilter#FilterLogFields
+func (f *LogFieldsFilter) FilterLogFields(logFields model.KeyValues) model.KeyValues {
+	return model.KeyValues{}
 }

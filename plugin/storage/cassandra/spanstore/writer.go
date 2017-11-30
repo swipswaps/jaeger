@@ -25,10 +25,10 @@ import (
 	"github.com/uber/jaeger-lib/metrics"
 	"go.uber.org/zap"
 
-	"github.com/uber/jaeger/model"
-	"github.com/uber/jaeger/pkg/cassandra"
-	casMetrics "github.com/uber/jaeger/pkg/cassandra/metrics"
-	"github.com/uber/jaeger/plugin/storage/cassandra/spanstore/dbmodel"
+	"github.com/jaegertracing/jaeger/model"
+	"github.com/jaegertracing/jaeger/pkg/cassandra"
+	casMetrics "github.com/jaegertracing/jaeger/pkg/cassandra/metrics"
+	"github.com/jaegertracing/jaeger/plugin/storage/cassandra/spanstore/dbmodel"
 )
 
 const (
@@ -86,6 +86,7 @@ type SpanWriter struct {
 	logger               *zap.Logger
 	tagIndexSkipped      metrics.Counter
 	bucketCounter        uint32
+	tagFilter            dbmodel.TagFilter
 }
 
 // NewSpanWriter returns a SpanWriter
@@ -94,10 +95,12 @@ func NewSpanWriter(
 	writeCacheTTL time.Duration,
 	metricsFactory metrics.Factory,
 	logger *zap.Logger,
+	options ...Option,
 ) *SpanWriter {
 	serviceNamesStorage := NewServiceNamesStorage(session, writeCacheTTL, metricsFactory, logger)
 	operationNamesStorage := NewOperationNamesStorage(session, writeCacheTTL, metricsFactory, logger)
 	tagIndexSkipped := metricsFactory.Counter("tagIndexSkipped", nil)
+	opts := applyOptions(options...)
 	return &SpanWriter{
 		session:              session,
 		serviceNamesWriter:   serviceNamesStorage.Write,
@@ -111,6 +114,7 @@ func NewSpanWriter(
 		},
 		logger:          logger,
 		tagIndexSkipped: tagIndexSkipped,
+		tagFilter:       opts.tagFilter,
 	}
 }
 
@@ -160,7 +164,7 @@ func (s *SpanWriter) WriteSpan(span *model.Span) error {
 }
 
 func (s *SpanWriter) indexByTags(span *model.Span, ds *dbmodel.Span) error {
-	for _, v := range dbmodel.GetAllUniqueTags(span) {
+	for _, v := range dbmodel.GetAllUniqueTags(span, s.tagFilter) {
 		// we should introduce retries or just ignore failures imo, retrying each individual tag insertion might be better
 		// we should consider bucketing.
 		if s.shouldIndexTag(v) {

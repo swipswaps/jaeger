@@ -20,17 +20,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/olivere/elastic"
 	"github.com/pkg/errors"
 	"github.com/uber/jaeger-lib/metrics"
 	"go.uber.org/zap"
+	"gopkg.in/olivere/elastic.v5"
 
-	"github.com/uber/jaeger/model"
-	jConverter "github.com/uber/jaeger/model/converter/json"
-	jModel "github.com/uber/jaeger/model/json"
-	"github.com/uber/jaeger/pkg/es"
-	"github.com/uber/jaeger/storage/spanstore"
-	storageMetrics "github.com/uber/jaeger/storage/spanstore/metrics"
+	"github.com/jaegertracing/jaeger/model"
+	jConverter "github.com/jaegertracing/jaeger/model/converter/json"
+	jModel "github.com/jaegertracing/jaeger/model/json"
+	"github.com/jaegertracing/jaeger/pkg/es"
+	"github.com/jaegertracing/jaeger/storage/spanstore"
+	storageMetrics "github.com/jaegertracing/jaeger/storage/spanstore/metrics"
 )
 
 const (
@@ -325,7 +325,9 @@ func (s *SpanReader) findTraceIDs(traceQuery *spanstore.TraceQueryParameters) ([
 	if err != nil {
 		return nil, errors.Wrap(err, "Search service failed")
 	}
-
+	if searchResult.Aggregations == nil {
+		return []string{}, nil
+	}
 	bucket, found := searchResult.Aggregations.Terms(traceIDAggregation)
 	if !found {
 		return nil, ErrUnableToFindTraceIDAggregation

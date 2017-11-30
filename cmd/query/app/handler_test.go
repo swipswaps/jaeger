@@ -31,13 +31,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 
+	"github.com/jaegertracing/jaeger/model"
+	"github.com/jaegertracing/jaeger/model/adjuster"
+	ui "github.com/jaegertracing/jaeger/model/json"
+	depsmocks "github.com/jaegertracing/jaeger/storage/dependencystore/mocks"
+	"github.com/jaegertracing/jaeger/storage/spanstore"
+	spanstoremocks "github.com/jaegertracing/jaeger/storage/spanstore/mocks"
 	jaeger "github.com/uber/jaeger-client-go"
-	"github.com/uber/jaeger/model"
-	"github.com/uber/jaeger/model/adjuster"
-	ui "github.com/uber/jaeger/model/json"
-	depsmocks "github.com/uber/jaeger/storage/dependencystore/mocks"
-	"github.com/uber/jaeger/storage/spanstore"
-	spanstoremocks "github.com/uber/jaeger/storage/spanstore/mocks"
 )
 
 const millisToNanosMultiplier = int64(time.Millisecond / time.Nanosecond)
@@ -137,18 +137,18 @@ func TestGetTraceSuccess(t *testing.T) {
 	assert.Len(t, response.Errors, 0)
 }
 
-func TestTracing(t *testing.T) {
+func TestGetTrace(t *testing.T) {
 	reporter := jaeger.NewInMemoryReporter()
 	jaegerTracer, jaegerCloser := jaeger.NewTracer("test", jaeger.NewConstSampler(true), reporter)
 	defer jaegerCloser.Close()
 
 	server, readMock, _ := initializeTestServer(HandlerOptions.Tracer(jaegerTracer))
 	defer server.Close()
-	readMock.On("GetTrace", mock.AnythingOfType("model.TraceID")).
+	readMock.On("GetTrace", model.TraceID{Low: 0x123456abc}).
 		Return(mockTrace, nil).Once()
 
 	var response structuredResponse
-	err := getJSON(server.URL+`/api/traces/123456`, &response)
+	err := getJSON(server.URL+`/api/traces/123456aBC`, &response) // trace ID in mixed lower/upper case
 	assert.NoError(t, err)
 	assert.Len(t, response.Errors, 0)
 

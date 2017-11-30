@@ -15,13 +15,14 @@
 package flags
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -31,12 +32,39 @@ const (
 	MemoryStorageType = "memory"
 	// ESStorageType is the storage type flag denoting an ElasticSearch backing store
 	ESStorageType                  = "elasticsearch"
-	runtimeMetricsFrequency        = "runtime-metrics-frequency"
 	spanStorageType                = "span-storage.type"
 	logLevel                       = "log-level"
-	dependencyStorageType          = "dependency-storage.type"
 	dependencyStorageDataFrequency = "dependency-storage.data-frequency"
+	configFile                     = "config-file"
 )
+
+// AddConfigFileFlag adds flags for ExternalConfFlags
+func AddConfigFileFlag(flagSet *flag.FlagSet) {
+	flagSet.String(configFile, "", "Configuration file in JSON, TOML, YAML, HCL, or Java properties formats (default none). See spf13/viper for precedence.")
+}
+
+// TryLoadConfigFile initializes viper with config file specified as flag
+func TryLoadConfigFile(v *viper.Viper) error {
+	if file := v.GetString(configFile); file != "" {
+		v.SetConfigFile(file)
+		err := v.ReadInConfig()
+		if err != nil {
+			return errors.Wrapf(err, "Error loading config file %s", file)
+		}
+	}
+	return nil
+}
+
+// NewLogger returns logger based on configuration in SharedFlags
+func (flags *SharedFlags) NewLogger(conf zap.Config, options ...zap.Option) (*zap.Logger, error) {
+	var level zapcore.Level
+	err := (&level).UnmarshalText([]byte(flags.Logging.Level))
+	if err != nil {
+		return nil, err
+	}
+	conf.Level = zap.NewAtomicLevelAt(level)
+	return conf.Build(options...)
+}
 
 // SharedFlags holds flags configuration
 type SharedFlags struct {
@@ -44,22 +72,22 @@ type SharedFlags struct {
 	SpanStorage spanStorage
 	// DependencyStorage defines common settings for Dependency Storage.
 	DependencyStorage dependencyStorage
+	// Logging holds logging configuration
+	Logging logging
 }
 
 // InitFromViper initializes SharedFlags with properties from viper
 func (flags *SharedFlags) InitFromViper(v *viper.Viper) *SharedFlags {
 	flags.SpanStorage.Type = v.GetString(spanStorageType)
-	flags.DependencyStorage.Type = v.GetString(dependencyStorageType)
 	flags.DependencyStorage.DataFrequency = v.GetDuration(dependencyStorageDataFrequency)
+	flags.Logging.Level = v.GetString(logLevel)
 	return flags
 }
 
 // AddFlags adds flags for SharedFlags
 func AddFlags(flagSet *flag.FlagSet) {
-	flagSet.Duration(runtimeMetricsFrequency, 1*time.Second, "The frequency of reporting Go runtime metrics")
 	flagSet.String(spanStorageType, CassandraStorageType, fmt.Sprintf("The type of span storage backend to use, options are currently [%v,%v,%v]", CassandraStorageType, ESStorageType, MemoryStorageType))
-	flagSet.String(logLevel, "info", "Minimal allowed log level")
-	flagSet.String(dependencyStorageType, CassandraStorageType, fmt.Sprintf("The type of dependency storage backend to use, options are currently [%v,%v,%v]", CassandraStorageType, ESStorageType, MemoryStorageType))
+	flagSet.String(logLevel, "info", "Minimal allowed log Level. For more levels see https://github.com/uber-go/zap")
 	flagSet.Duration(dependencyStorageDataFrequency, time.Hour*24, "Frequency of service dependency calculations")
 }
 
@@ -75,19 +103,5 @@ type spanStorage struct {
 }
 
 type dependencyStorage struct {
-	Type          string
 	DataFrequency time.Duration
-}
-
-type cassandraOptions struct {
-	ConnectionsPerHost int
-	MaxRetryAttempts   int
-	QueryTimeout       time.Duration
-	Servers            string
-	Port               int
-	Keyspace           string
-}
-
-func (co cassandraOptions) ServerList() []string {
-	return strings.Split(co.Servers, ",")
 }

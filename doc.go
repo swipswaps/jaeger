@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package jaeger hosts the backend components of Jaeger, distributed tracing system.
-// For documentation please see http://jaeger.readthedocs.io/
+// Do not delete this file, it's needed for `go get` to work.
+
+// Package jaeger contains the code for Jaeger backend.
 package jaeger

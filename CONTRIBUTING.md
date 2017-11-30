@@ -21,9 +21,18 @@ file for details.
 
 This library uses [glide](https://github.com/Masterminds/glide) to manage dependencies.
 
-To get started:
+To get started, make sure you clone the Git repository into the correct location `github.com/jaegertracing/jaeger` relative to `$GOPATH`:
 
-```bash
+```
+mkdir -p $GOPATH/src/github.com/jaegertracing
+cd $GOPATH/src/github.com/jaegertracing
+git clone git@github.com:jaegertracing/jaeger.git jaeger
+cd jaeger
+```
+
+Then install dependencies and run the tests:
+
+```
 git submodule update --init --recursive
 glide install
 make test
@@ -34,7 +43,7 @@ make test
 These are general guidelines on how to organize source code in this repository.
 
 ```
-github.com/uber/jaeger
+github.com/jaegertracing/jaeger
   cmd/                      - All binaries go here
     agent/
       app/                  - The actual code for the binary
@@ -42,7 +51,14 @@ github.com/uber/jaeger
     collector/
       app/                  - The actual code for the binary
       main.go
-  pkg/                      - See Note 1
+  crossdock/                - Cross-repo integration test configuration
+  docs/                     - Documentation
+  examples/
+      hotrod/               - Demo application that uses OpenTracing API
+  idl/                      - (submodule) https://github.com/jaegertracing/jaeger-idl
+  jaeger-ui/                - (submodule) https://github.com/jaegertracing/jaeger-ui
+  model/                    - Where models are kept, e.g. Process, Span, Trace
+  pkg/                      - (See Note 1)
   plugin/                   - Swappable implementations of various components
     storage/
       cassandra/            - Cassandra implementations of storage APIs
@@ -50,16 +66,18 @@ github.com/uber/jaeger
         spanstore/          - SpanReader / SpanWriter implementations
         dependencystore/
       elasticsearch/        - ES implementations of storage APIs
+  scripts/                  - Miscellaneous project scripts, e.g. license update script
   storage/
     spanstore/              - SpanReader / SpanWriter interfaces
     dependencystore/
-  idl/                      - (submodule)
-  jaeger-ui/                - (submodule)
   thrift-gen/               - Generated Thrift types
     agent/
     jaeger/
     sampling/
     zipkincore/
+  travis/                   - Travis scripts called in .travis.yml
+  glide.yaml                - Glide is the project's dependency manager
+  mkdocs.yml                - MkDocs builds the documentation in docs/
 ```
 
   * Note 1: `pkg` is a collection of utility packages used by the Jaeger components
@@ -84,15 +102,15 @@ import (
 	"github.com/uber/jaeger-lib/metrics"
 	"go.uber.org/zap"
 
-	"github.com/uber/jaeger/cmd/agent/app"
-	"github.com/uber/jaeger/cmd/collector/app/builder"
+	"github.com/jaegertracing/jaeger/cmd/agent/app"
+	"github.com/jaegertracing/jaeger/cmd/collector/app/builder"
 )
 ```
 
 ## Making A Change
 
 *Before making any significant changes, please [open an
-issue](https://github.com/uber/jaeger/issues).* Discussing your proposed
+issue](https://github.com/jaegertracing/jaeger/issues).* Discussing your proposed
 changes ahead of time will make the contribution process smooth for everyone.
 
 Once we've discussed your changes and you've got your code ready, make sure
@@ -105,6 +123,7 @@ pull request is most likely to be accepted if it:
   review comments](https://github.com/golang/go/wiki/CodeReviewComments).
 * Has a [good commit
   message](http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html).
+* Each commit must be signed by the author ([see below](#sign-your-work)).
 
 ## License
 
@@ -115,7 +134,7 @@ If you are adding a new file it should have a header like below.  The easiest
 way to add such header is to run `make fmt`.
 
 ```
-// Copyright (c) 2017 Uber Technologies, Inc.
+// Copyright (c) 2017 The Jaeger Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -128,4 +147,66 @@ way to add such header is to run `make fmt`.
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+```
+
+## Sign your work
+
+The sign-off is a simple line at the end of the explanation for the
+patch, which certifies that you wrote it or otherwise have the right to
+pass it on as an open-source patch.  The rules are pretty simple: if you
+can certify the below (from
+[developercertificate.org](http://developercertificate.org/)):
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+660 York Street, Suite 102,
+San Francisco, CA 94110 USA
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
+```
+
+then you just add a line to every git commit message:
+
+    Signed-off-by: Joe Smith <joe@gmail.com>
+
+using your real name (sorry, no pseudonyms or anonymous contributions.)
+
+You can add the sign off when creating the git commit via `git commit -s`.
+
+If you want this to be automatic you can set up some aliases:
+
+```
+git config --add alias.amend "commit -s --amend"
+git config --add alias.c "commit -s"
 ```

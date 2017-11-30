@@ -33,7 +33,7 @@ import (
 	zipkinTransport "github.com/uber/jaeger-client-go/transport/zipkin"
 	tchanThrift "github.com/uber/tchannel-go/thrift"
 
-	"github.com/uber/jaeger/thrift-gen/zipkincore"
+	"github.com/jaegertracing/jaeger/thrift-gen/zipkincore"
 )
 
 var httpClient = &http.Client{Timeout: 2 * time.Second}
@@ -83,44 +83,40 @@ func TestViaClient(t *testing.T) {
 
 	tracer.StartSpan("root").Finish()
 
+	waitForSpans(t, handler.zipkinSpansHandler.(*mockZipkinHandler), 1)
+}
+
+func waitForSpans(t *testing.T, handler *mockZipkinHandler, expecting int) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		if time.Now().After(deadline) {
 			t.Error("never received a span")
 			return
 		}
-		if want, have := 1, len(handler.zipkinSpansHandler.(*mockZipkinHandler).getSpans()); want != have {
+		if have := len(handler.getSpans()); expecting != have {
 			time.Sleep(time.Millisecond)
 			continue
 		}
 		break
 	}
-
-	assert.Equal(t, 1, len(handler.zipkinSpansHandler.(*mockZipkinHandler).getSpans()))
+	assert.Len(t, handler.getSpans(), expecting)
 }
 
 func TestThriftFormat(t *testing.T) {
-	server, handler := initializeTestServer(nil)
+	server, _ := initializeTestServer(nil)
 	defer server.Close()
-
 	bodyBytes := zipkinSerialize([]*zipkincore.Span{{}})
 	statusCode, resBodyStr, err := postBytes(server.URL+`/api/v1/spans`, bodyBytes, createHeader("application/x-thrift"))
 	assert.NoError(t, err)
 	assert.EqualValues(t, http.StatusAccepted, statusCode)
 	assert.EqualValues(t, "", resBodyStr)
-
-	handler.zipkinSpansHandler.(*mockZipkinHandler).err = fmt.Errorf("Bad times ahead")
-	statusCode, resBodyStr, err = postBytes(server.URL+`/api/v1/spans`, bodyBytes, createHeader("application/x-thrift"))
-	assert.NoError(t, err)
-	assert.EqualValues(t, http.StatusInternalServerError, statusCode)
-	assert.EqualValues(t, "Cannot submit Zipkin batch: Bad times ahead\n", resBodyStr)
 }
 
 func TestJsonFormat(t *testing.T) {
 	server, handler := initializeTestServer(nil)
 	defer server.Close()
 
-	endpJSON := createEndpoint("foo", "127.0.0.1", "2001:db8::c001", 66)
+	endpJSON := createEndpoint("foo", "127.0.0.1", "2001:db8::c001", 65535)
 	annoJSON := createAnno("cs", 1515, endpJSON)
 	binAnnoJSON := createBinAnno("http.status_code", "200", endpJSON)
 	spanJSON := createSpan("bar", "1234567891234565", "1234567891234567", "1234567891234568", 156, 15145, false,
@@ -129,6 +125,11 @@ func TestJsonFormat(t *testing.T) {
 	assert.NoError(t, err)
 	assert.EqualValues(t, http.StatusAccepted, statusCode)
 	assert.EqualValues(t, "", resBodyStr)
+	waitForSpans(t, handler.zipkinSpansHandler.(*mockZipkinHandler), 1)
+	recdSpan := handler.zipkinSpansHandler.(*mockZipkinHandler).getSpans()[0]
+	require.Len(t, recdSpan.Annotations, 1)
+	require.NotNil(t, recdSpan.Annotations[0].Host)
+	assert.EqualValues(t, -1, recdSpan.Annotations[0].Host.Port, "Port 65535 must be represented as -1 in zipkin.thrift")
 
 	endpErrJSON := createEndpoint("", "127.0.0.A", "", 80)
 
@@ -146,12 +147,12 @@ func TestJsonFormat(t *testing.T) {
 		},
 		{
 			payload:    createSpan("bar", "", "1", "1", 156, 15145, false, annoJSON, binAnnoJSON),
-			expected:   "Unable to process request body: id is not an unsigned long\n",
+			expected:   "Unable to process request body: strconv.ParseUint: parsing \"\": invalid syntax\n",
 			statusCode: http.StatusBadRequest,
 		},
 		{
 			payload:    createSpan("bar", "ZTA", "1", "1", 156, 15145, false, "", ""),
-			expected:   "Unable to process request body: id is not an unsigned long\n",
+			expected:   "Unable to process request body: strconv.ParseUint: parsing \"ZTA\": invalid syntax\n",
 			statusCode: http.StatusBadRequest,
 		},
 		{
@@ -220,9 +221,52 @@ func TestCannotReadBodyFromRequest(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, "whatever", &errReader{})
 	assert.NoError(t, err)
 	rw := dummyResponseWriter{}
-	handler.saveSpans(&rw, req)
-	assert.EqualValues(t, http.StatusInternalServerError, rw.myStatusCode)
-	assert.EqualValues(t, "Unable to process request body: Simulated error reading body\n", rw.myBody)
+
+	tests := []struct {
+		handler func(w http.ResponseWriter, r *http.Request)
+	}{
+		{handler: handler.saveSpans},
+		{handler: handler.saveSpansV2},
+	}
+	for _, test := range tests {
+		test.handler(&rw, req)
+		assert.EqualValues(t, http.StatusInternalServerError, rw.myStatusCode)
+		assert.EqualValues(t, "Unable to process request body: Simulated error reading body\n", rw.myBody)
+	}
+}
+
+func TestSaveSpansV2(t *testing.T) {
+	server, handler := initializeTestServer(nil)
+	defer server.Close()
+	tests := []struct {
+		body    []byte
+		resBody string
+		code    int
+		headers map[string]string
+	}{
+		{body: []byte("[]"), code: http.StatusAccepted},
+		{body: gzipEncode([]byte("[]")), code: http.StatusAccepted, headers: map[string]string{"Content-Encoding": "gzip"}},
+		{body: []byte("[]"), code: http.StatusBadRequest, headers: map[string]string{"Content-Type": "text/html"}, resBody: "Unsupported Content-Type\n"},
+		{body: []byte("[]"), code: http.StatusBadRequest, headers: map[string]string{"Content-Encoding": "gzip"}, resBody: "Unable to process request body: unexpected EOF\n"},
+		{body: []byte("not good"), code: http.StatusBadRequest, resBody: "Unable to process request body: invalid character 'o' in literal null (expecting 'u')\n"},
+		{body: []byte("[{}]"), code: http.StatusBadRequest, resBody: "Unable to process request body: validation failure list:\nid in body is required\ntraceId in body is required\n"},
+		{body: []byte(`[{"id":"1111111111111111", "traceId":"1111111111111111", "localEndpoint": {"ipv4": "A"}}]`), code: http.StatusBadRequest, resBody: "Unable to process request body: wrong ipv4\n"},
+	}
+	for _, test := range tests {
+		h := createHeader("application/json")
+		for k, v := range test.headers {
+			h.Set(k, v)
+		}
+		statusCode, resBody, err := postBytes(server.URL+`/api/v2/spans`, test.body, h)
+		require.NoError(t, err)
+		assert.EqualValues(t, test.code, statusCode)
+		assert.EqualValues(t, test.resBody, resBody)
+	}
+	handler.zipkinSpansHandler.(*mockZipkinHandler).err = fmt.Errorf("Bad times ahead")
+	statusCode, resBody, err := postBytes(server.URL+`/api/v2/spans`, []byte(`[{"id":"1111111111111111", "traceId":"1111111111111111"}]`), createHeader("application/json"))
+	require.NoError(t, err)
+	assert.EqualValues(t, http.StatusInternalServerError, statusCode)
+	assert.EqualValues(t, "Cannot submit Zipkin batch: Bad times ahead\n", resBody)
 }
 
 type errReader struct{}

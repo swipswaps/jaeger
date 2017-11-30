@@ -15,6 +15,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/pkg/errors"
@@ -22,19 +24,31 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"github.com/uber/jaeger/cmd/agent/app"
-	"github.com/uber/jaeger/pkg/config"
-	"github.com/uber/jaeger/pkg/metrics"
+	"github.com/jaegertracing/jaeger/cmd/agent/app"
+	"github.com/jaegertracing/jaeger/cmd/flags"
+	"github.com/jaegertracing/jaeger/pkg/config"
+	"github.com/jaegertracing/jaeger/pkg/metrics"
+	"github.com/jaegertracing/jaeger/pkg/version"
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
 	v := viper.New()
 	var command = &cobra.Command{
 		Use:   "jaeger-agent",
 		Short: "Jaeger agent is a local daemon program which collects tracing data.",
 		Long:  `Jaeger agent is a daemon program that runs on every host and receives tracing data submitted by Jaeger client libraries.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			err := flags.TryLoadConfigFile(v)
+			if err != nil {
+				return err
+			}
+
+			sFlags := new(flags.SharedFlags).InitFromViper(v)
+			logger, err := sFlags.NewLogger(zap.NewProductionConfig())
+			if err != nil {
+				return err
+			}
+
 			builder := &app.Builder{}
 			builder.InitFromViper(v)
 			runtime.GOMAXPROCS(runtime.NumCPU())
@@ -55,14 +69,18 @@ func main() {
 		},
 	}
 
+	command.AddCommand(version.Command())
+
 	config.AddFlags(
 		v,
 		command,
+		flags.AddConfigFileFlag,
 		app.AddFlags,
 		metrics.AddFlags,
 	)
 
 	if err := command.Execute(); err != nil {
-		logger.Fatal("agent command failed", zap.Error(err))
+		fmt.Println(err.Error())
+		os.Exit(1)
 	}
 }

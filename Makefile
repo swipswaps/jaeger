@@ -1,11 +1,13 @@
-PROJECT_ROOT=github.com/uber/jaeger
-PACKAGES := $(shell glide novendor | grep -v ./thrift-gen/... | grep -v ./examples/...)
+PROJECT_ROOT=github.com/jaegertracing/jaeger
+TOP_PKGS := $(shell glide novendor | grep -v -e ./thrift-gen/... -e swagger-gen... -e ./examples/... -e ./scripts/...)
 
 # all .go files that don't exist in hidden directories
-ALL_SRC := $(shell find . -name "*.go" | grep -v -e vendor -e thrift-gen \
+ALL_SRC := $(shell find . -name "*.go" | grep -v -e vendor -e thrift-gen -e swagger-gen \
         -e ".*/\..*" \
         -e ".*/_.*" \
         -e ".*/mocks.*")
+
+ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
 
 export GO15VENDOREXPERIMENT=1
 
@@ -18,6 +20,13 @@ FMT_LOG=fmt.log
 LINT_LOG=lint.log
 MKDOCS_VIRTUAL_ENV=.mkdocs-virtual-env
 
+GIT_SHA=$(shell git rev-parse HEAD)
+GIT_CLOSEST_TAG=$(shell git describe --abbrev=0 --tags)
+DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+BUILD_INFO_IMPORT_PATH=github.com/jaegertracing/jaeger/pkg/version
+BUILD_INFO=-ldflags "-X $(BUILD_INFO_IMPORT_PATH).commitSHA=$(GIT_SHA) -X $(BUILD_INFO_IMPORT_PATH).latestVersion=$(GIT_CLOSEST_TAG) -X $(BUILD_INFO_IMPORT_PATH).date=$(DATE)"
+
+SED=sed
 THRIFT_VER=0.9.3
 THRIFT_IMG=thrift:$(THRIFT_VER)
 THRIFT=docker run --rm -u ${shell id -u} -v "${PWD}:/data" $(THRIFT_IMG) thrift
@@ -25,10 +34,15 @@ THRIFT_GO_ARGS=thrift_import="github.com/apache/thrift/lib/go/thrift"
 THRIFT_GEN=$(shell which thrift-gen)
 THRIFT_GEN_DIR=thrift-gen
 
+SWAGGER_VER=0.12.0
+SWAGGER_IMAGE=quay.io/goswagger/swagger:$(SWAGGER_VER)
+SWAGGER=docker run --rm -it -u ${shell id -u} -v "${PWD}:/go/src/${PROJECT_ROOT}" -w /go/src/${PROJECT_ROOT} $(SWAGGER_IMAGE)
+SWAGGER_GEN_DIR=swagger-gen
+
 PASS=$(shell printf "\033[32mPASS\033[0m")
 FAIL=$(shell printf "\033[31mFAIL\033[0m")
-COLORIZE=sed ''/PASS/s//$(PASS)/'' | sed ''/FAIL/s//$(FAIL)/''
-DOCKER_NAMESPACE?=$(USER)
+COLORIZE=$(SED) ''/PASS/s//$(PASS)/'' | $(SED) ''/FAIL/s//$(FAIL)/''
+DOCKER_NAMESPACE?=jaegertracing
 DOCKER_TAG?=latest
 
 .DEFAULT_GOAL := test-and-lint
@@ -38,7 +52,7 @@ test-and-lint: test fmt lint
 
 .PHONY: go-gen
 go-gen:
-	go generate $(PACKAGES)
+	go generate $(TOP_PKGS)
 
 .PHONY: md-to-godoc-gen
 md-to-godoc-gen:
@@ -52,7 +66,7 @@ clean:
 
 .PHONY: test
 test: go-gen
-	bash -c "set -e; set -o pipefail; $(GOTEST) $(PACKAGES) | $(COLORIZE)"
+	bash -c "set -e; set -o pipefail; $(GOTEST) $(TOP_PKGS) | $(COLORIZE)"
 
 .PHONY: integration-test
 integration-test: go-gen
@@ -69,13 +83,13 @@ fmt:
 
 .PHONY: lint
 lint:
-	$(GOVET) $(PACKAGES)
+	$(GOVET) $(TOP_PKGS)
 	@cat /dev/null > $(LINT_LOG)
-	@$(foreach pkg, $(PACKAGES), $(GOLINT) $(pkg) | grep -v -e pkg/es/wrapper.go -e /mocks/ -e thrift-gen -e thrift-0.9.2 >> $(LINT_LOG) || true;)
+	@$(foreach pkg, $(TOP_PKGS), $(GOLINT) $(pkg) | grep -v -e pkg/es/wrapper.go -e /mocks/ -e thrift-gen -e thrift-0.9.2 >> $(LINT_LOG) || true;)
 	@[ ! -s "$(LINT_LOG)" ] || (echo "Lint Failures" | cat - $(LINT_LOG) && false)
 	@$(GOFMT) -e -s -l $(ALL_SRC) > $(FMT_LOG)
 	@./scripts/updateLicenses.sh >> $(FMT_LOG)
-	@[ ! -s "$(FMT_LOG)" ] || (echo "Go Fmt Failures, run 'make fmt'" | cat - $(FMT_LOG) && false)
+	@[ ! -s "$(FMT_LOG)" ] || (echo "Go fmt or license check failures, run 'make fmt'" | cat - $(FMT_LOG) && false)
 
 .PHONY: install-glide
 install-glide:
@@ -87,12 +101,8 @@ install-glide:
 install: install-glide
 	glide install
 
-.PHONY: install_examples
-install_examples: install
-	(cd examples/hotrod/; glide install)
-
-.PHONY: build_examples
-build_examples:
+.PHONY: build-examples
+build-examples:
 	go build -o ./examples/hotrod/hotrod-demo ./examples/hotrod/main.go
 
 .PHONY: build_ui
@@ -103,22 +113,27 @@ build_ui:
 
 .PHONY: build-all-in-one-linux
 build-all-in-one-linux: build_ui
-	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/standalone/standalone-linux ./cmd/standalone/main.go
+	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/standalone/standalone-linux $(BUILD_INFO) ./cmd/standalone/main.go
 
 .PHONY: build-agent-linux
 build-agent-linux:
-	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/agent/agent-linux ./cmd/agent/main.go
+	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/agent/agent-linux $(BUILD_INFO) ./cmd/agent/main.go
 
 .PHONY: build-query-linux
 build-query-linux:
-	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/query/query-linux ./cmd/query/main.go
+	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/query/query-linux $(BUILD_INFO) ./cmd/query/main.go
 
 .PHONY: build-collector-linux
 build-collector-linux:
-	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/collector/collector-linux ./cmd/collector/main.go
+	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./cmd/collector/collector-linux $(BUILD_INFO) ./cmd/collector/main.go
+
+.PHONY: docker-no-ui
+docker-no-ui: build-agent-linux build-collector-linux build-query-linux build-crossdock-linux
+	mkdir -p jaeger-ui-build/build/
+	make docker-images-only
 
 .PHONY: docker
-docker: build_ui build-agent-linux build-collector-linux build-query-linux docker-images-only
+docker: build_ui docker-no-ui
 
 .PHONY: docker-images-only
 docker-images-only:
@@ -130,51 +145,53 @@ docker-images-only:
 		echo "Finished building $$component ==============" ; \
 	done
 	rm -rf cmd/query/jaeger-ui-build
+	docker build -t $(DOCKER_NAMESPACE)/test-driver:${DOCKER_TAG} crossdock/
+	@echo "Finished building test-driver ==============" ; \
 
 .PHONY: docker-push
 docker-push:
+	@while [ -z "$$CONFIRM" ]; do \
+		read -r -p "Do you really want to push images to repository \"${DOCKER_NAMESPACE}\"? [y/N] " CONFIRM; \
+	done ; \
+	if [ $$CONFIRM != "y" ] && [ $$CONFIRM != "Y" ]; then \
+		echo "Exiting." ; exit 1 ; \
+	fi
 	for component in agent cassandra-schema collector query ; do \
 		docker push $(DOCKER_NAMESPACE)/jaeger-$$component ; \
 	done
 
 .PHONY: build-crossdock-linux
 build-crossdock-linux:
-	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./crossdock/crossdock ./crossdock/main.go
-
-.PHONY: build-crossdock-bin
-build-crossdock-bin:
-	make build-crossdock-linux
-	make build-query-linux
-	make build-collector-linux
-	make build-agent-linux
+	CGO_ENABLED=0 GOOS=linux installsuffix=cgo go build -o ./crossdock/crossdock-linux ./crossdock/main.go
 
 include crossdock/rules.mk
 
 .PHONY: build-crossdock
-build-crossdock: build-crossdock-bin
+build-crossdock: docker-no-ui
 	make crossdock
 
 .PHONY: build-crossdock-fresh
-build-crossdock-fresh: build-crossdock-bin
+build-crossdock-fresh: build-crossdock-linux
 	make crossdock-fresh
 
 .PHONY: cover
 cover:
-	./scripts/cover.sh $(shell go list $(PACKAGES))
+	./scripts/cover.sh $(shell go list $(TOP_PKGS))
 	go tool cover -html=cover.out -o cover.html
 
-.PHONY: install_ci
-install_ci: install install_examples
+.PHONY: install-ci
+install-ci: install
 	go get github.com/wadey/gocovmerge
 	go get github.com/mattn/goveralls
 	go get golang.org/x/tools/cmd/cover
 	go get github.com/golang/lint/golint
 	go get github.com/sectioneight/md-to-godoc
 
-.PHONY: test_ci
-test_ci: build_examples
-	@./scripts/cover.sh $(shell go list $(PACKAGES))
-	make lint
+.PHONY: test-ci
+test-ci: build-examples lint
+	@echo pre-compiling tests
+	@time go test -i $(ALL_PKGS)
+	@./scripts/cover.sh $(shell go list $(TOP_PKGS))
 
 # TODO at the moment we're not generating tchan_*.go files
 .PHONY: thrift
@@ -206,6 +223,11 @@ idl-submodule:
 .PHONY: thrift-image
 thrift-image:
 	$(THRIFT) -version
+
+.PHONY: generate-zipkin-swagger
+generate-zipkin-swagger: idl-submodule
+	$(SWAGGER) generate server -f ./idl/swagger/zipkin2-api.yaml -t $(SWAGGER_GEN_DIR) -O PostSpans --exclude-main
+	rm $(SWAGGER_GEN_DIR)/restapi/operations/post_spans_urlbuilder.go $(SWAGGER_GEN_DIR)/restapi/server.go $(SWAGGER_GEN_DIR)/restapi/configure_zipkin.go $(SWAGGER_GEN_DIR)/models/trace.go $(SWAGGER_GEN_DIR)/models/list_of_traces.go $(SWAGGER_GEN_DIR)/models/dependency_link.go
 
 .PHONY: docs
 docs: $(MKDOCS_VIRTUAL_ENV)

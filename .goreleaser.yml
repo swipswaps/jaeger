@@ -2,24 +2,24 @@ builds:
   - binary: collector
     main: cmd/collector/main.go
     goos:
-      #- windows
-      #- darwin
+      - windows
+      - darwin
       - linux
     goarch:
       - amd64
   - binary: agent
     main: cmd/agent/main.go
     goos:
-      #- windows
-      #- darwin
+      - windows
+      - darwin
       - linux
     goarch:
       - amd64
   - binary: query
     main: cmd/query/main.go
     goos:
-      #- windows
-      #- darwin
+      - windows
+      - darwin
       - linux
     goarch:
       - amd64
